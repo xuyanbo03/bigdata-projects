@@ -1,0 +1,190 @@
+启动服务
+nohup hiveserver2 1>~/logs/hive_std.log 2>~/logs/hive_err.log &
+
+连接服务
+beeline或者hive
+!connect jdbc:hive2://hadoop04:10000
+show databases;
+show tables;
+
+
+创建表
+ODS层
+原始数据表：
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.ods_weblog_origin;
+create table weblog.ods_weblog_origin(
+valid string,
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+status string,
+body_bytes_sent string,
+http_referer string,
+http_user_agent string)
+partitioned by (datestr string)
+row format delimited
+fields terminated by '\001';
+
+
+dw层
+点击流事件表：
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.click_stream_pageviews;
+create table weblog.click_stream_pageviews (
+session string,
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+page_staylong string,
+visit_step string,
+status string,
+body_bytes_sent string,
+http_referer string,
+http_user_agent string)
+partitioned by (datestr string)
+row format delimited
+fields terminated by '\001';
+
+会话访问统计表  点击流访客表
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.click_stream_visit;
+create table weblog.click_stream_visit(
+session string,
+remote_addr string,
+inTime string,
+outTime string,
+inPage string,
+outPage string,
+referal string,
+pageVisits int)
+partitioned by (datestr string);
+
+
+加载数据
+/weblog/pre/20200221  原始表
+load data inpath '/weblog/pre/20200221' into table weblog.ods_weblog_origin partition(datestr = "20200221");
+
+/weblog/click/stream/20200221  点击流事件表
+load data inpath "/weblog/click/stream/20200221" into table weblog.click_stream_pageviews partition(datestr ="20200221");
+
+/weblog/click/model/20200221  点击流访客表
+load data inpath "/weblog/click/model/20200221" into table weblog.click_stream_visit partition(datestr ="20200221");
+
+查询数据
+select * from weblog.ods_weblog_origin limit 1;
+select * from weblog.click_stream_pageviews limit 1;
+select * from weblog.click_stream_visit limit 1;
+
+
+dw层创建明细宽表：
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.ods_weblog_detail;
+create table weblog.ods_weblog_detail(
+valid string comment "有效标识",
+remote_addr string comment "来源 IP",
+remote_user string comment "用户标识",
+time_local string comment "访问完整时间",
+daystr string comment "访问日期",
+timestr string comment "访问时间",
+year string comment "访问年",
+month string comment "访问月",
+day string comment "访问日",
+hour string comment "访问时",
+request string comment "请求的 url",
+status string comment "响应码",
+body_bytes_sent string comment "传输字节数",
+http_referer string comment "来源 url",
+ref_host string comment "来源的 host",
+ref_path string comment "来源的路径",
+ref_query string comment "来源参数 query",
+ref_query_id string comment "来源参数 query 的值",
+http_user_agent string comment "客户终端标识"
+)
+partitioned by(datestr string) 
+row format delimited fields terminated by '\001';
+
+
+设置本地模式和打印表头
+set hive.exec.mode.local.auto=true;
+set hive.cli.print.header=true;
+
+
+解析url：解析外链的信息  
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.t_ods_tmp_referurl;
+create table weblog.t_ods_tmp_referurl as
+SELECT a.*, b.*
+FROM ods_weblog_origin a
+LATERAL VIEW parse_url_tuple(regexp_replace(http_referer, "\"", ""), 'HOST', 'PATH', 'QUERY','QUERY:id') b 
+as host, path, query, query_id;
+
+查询外链信息临时表
+select * from weblog.t_ods_tmp_referurl a where a.host is not null limit 1;
+
+最终明细宽表
+create database if not exists weblog;
+use weblog;
+drop table if exists weblog.t_ods_tmp_detail;
+create table weblog.t_ods_tmp_detail as
+select b.*,substring(time_local,0,10) as daystr,
+substring(time_local,11) as tmstr,
+substring(time_local,0,4) as year,
+substring(time_local,6,2) as month,
+substring(time_local,9,2) as day,
+substring(time_local,12,2) as hour 
+From t_ods_tmp_referurl b;
+
+查询宽表
+select * from weblog.t_ods_tmp_detail where month is not null limit 3;
+
+
+统计日志中的相关指标
+1）pv：page view 
+click_stream_pageviews 76
+select count(*) from click_stream_pageviews;
+
+2）uv：独立用户数 独立会话数，统计的会话的个数
+click_stream_visit 57
+select count(*) from click_stream_visit;
+
+3)dv：平均每一个会话的访问深度，所有的pv / uv 
+关联 
+set hive.strict.checks.cartesian.product=false;
+set hive.mapred.mode=nonstrict;
+
+select a.pv/b.uv avgdv  
+from 
+(select count(*) pv from click_stream_pageviews ) a join 
+(select count(*) uv from click_stream_visit) b;
+
+4）转化率
+数据order.txt
+1,广告,10000   
+2,菜单,3000		
+3,商品详情,2600	
+4,购物车,300	
+5,下单,200		
+6,支付,190
+7,支付成功,189
+
+建表加载数据
+create database if not exists hive_order;
+use hive_order;
+drop table if exists t_order;
+create table t_order(step int, name string, pv int) row format delimited fields terminated by ",";
+load data local inpath "/home/hadoop/tmpdata/order.txt" into table t_order;
+select * from t_order limit 10;
+
+查转化率
+select step,name,pv,pv/lpv t 
+from 
+(select step,name,pv,lag(pv,1,pv) over(order by step) lpv from t_order) a;
+
