@@ -1,0 +1,12 @@
+启动：
+zkServer.sh start
+nohup kafka-server-start.sh $KAFKA_HOME/config/server.properties 1>~/logs/kafka_std.log 2>~/logs/kafka_err.log &
+
+查看topics：
+kafka-topics.sh --list --zookeeper hadoop02:2181,hadoop03:2181,hadoop01:2181/kafka
+
+创建topic：cdnlog
+kafka-topics.sh --create --zookeeper hadoop02:2181,hadoop03:2181,hadoop01:2181/kafka --replication-factor 1 --partitions 1 --topic cdnlog
+
+控制台消费：
+kafka-console-consumer.sh --zookeeper hadoop02:2181,hadoop03:2181,hadoop01:2181/kafka --topic cdnlog

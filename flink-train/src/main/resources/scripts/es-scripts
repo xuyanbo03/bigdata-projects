@@ -1,0 +1,27 @@
+创建索引库：
+curl -XPUT http://localhost:9200/cdn
+
+删除索引库：
+curl -XDELETE http://localhost:9200/cdn
+
+创建type表：
+curl -H "Content-Type: application/json" -XPOST http://localhost:9200/cdn/traffic/_mapping -d'{
+    "traffic": {
+        "properties": {
+            "domain": {"type": "keyword"},
+            "traffics": {"type": "long"},
+            "time": {"type": "date","format": "yyyy-MM-dd HH:mm"}
+        }
+    }
+}'
+
+curl -H "Content-Type: application/json" -XPOST http://localhost:9200/cdn/traffic-userid/_mapping -d'{
+    "traffic": {
+        "properties": {
+            "userid": {"type": "keyword"},
+            "domain": {"type": "text"},
+            "traffics": {"type": "long"},
+            "time": {"type": "date","format": "yyyy-MM-dd HH:mm"}
+        }
+    }
+}'
