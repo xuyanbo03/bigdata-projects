@@ -43,7 +43,7 @@
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>4.11</version>
+      <version>4.13.1</version>
       <!--
         scope：作用域或者值域
           compile(默认,在编译器，运行时都可用，在src/main和src/test下都可用)
